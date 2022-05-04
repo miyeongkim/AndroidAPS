@@ -14,6 +14,7 @@ import info.nightscout.androidaps.data.PumpEnactResult
 import info.nightscout.androidaps.diaconn.DiaconnG8Plugin
 import info.nightscout.androidaps.diaconn.DiaconnG8Pump
 import info.nightscout.androidaps.diaconn.R
+import info.nightscout.androidaps.diaconn.database.DiaconnHistoryRecordDao
 import info.nightscout.androidaps.diaconn.events.EventDiaconnG8NewStatus
 import info.nightscout.androidaps.diaconn.packet.*
 import info.nightscout.androidaps.diaconn.pumplog.PumplogUtil
@@ -72,6 +73,7 @@ class DiaconnG8Service : DaggerService() {
     @Inject lateinit var fabricPrivacy: FabricPrivacy
     @Inject lateinit var pumpSync: PumpSync
     @Inject lateinit var dateUtil: DateUtil
+    @Inject lateinit var diaconnHistoryRecordDao: DiaconnHistoryRecordDao
 
     private val disposable = CompositeDisposable()
     private val mBinder: IBinder = LocalBinder()
@@ -128,7 +130,7 @@ class DiaconnG8Service : DaggerService() {
     }
 
     private fun sendMessage(message: DiaconnG8Packet) {
-        bleCommonService.sendMessage(message, 500)
+        bleCommonService.sendMessage(message, 2000)
     }
 
     fun readPumpStatus() {
@@ -244,6 +246,16 @@ class DiaconnG8Service : DaggerService() {
         }
 
         val result = PumpEnactResult(injector)
+        var apsLastLogNum = 9999
+        var apsWrappingCount = -1
+        // get saved last loginfo
+        val diaconnHistoryRecord = diaconnHistoryRecordDao.getLastRecord(diaconnG8Pump.pumpUid)
+        aapsLogger.error(LTag.PUMPCOMM, "diaconnHistoryRecord :: $diaconnHistoryRecord")
+
+        if(diaconnHistoryRecord != null) {
+            apsLastLogNum = diaconnHistoryRecord.lognum
+            apsWrappingCount = diaconnHistoryRecord.wrappingCount
+        }
 
         // pump log status
         val pumpLastNum = diaconnG8Pump.pumpLastLogNum
@@ -251,72 +263,67 @@ class DiaconnG8Service : DaggerService() {
         val apsIncarnationNum = sp.getInt(rh.gs(R.string.apsIncarnationNo), 65536)
         // aps last log num
         val pumpSerialNo = sp.getInt(rh.gs(R.string.pumpserialno), 0)
-        var apsWrappingCount = sp.getInt(rh.gs(R.string.apsWrappingCount), 0)
-        var apsLastLogNum = sp.getInt(rh.gs(R.string.apslastLogNum), 0)
+
 
         // if first install app
-        if (apsWrappingCount == 0 && apsLastLogNum == 0) {
-            pumpLogDefaultSetting()
+        if (apsWrappingCount == -1 && apsLastLogNum == 9999 ) {
+            apsWrappingCount = pumpWrappingCount
+            apsLastLogNum = if (pumpLastNum - 1 < 0) 0 else pumpLastNum -2
         }
-
-        // if pump reset
-        if (apsIncarnationNum != diaconnG8Pump.pumpIncarnationNum) {
-            pumpLogDefaultSetting()
-            sp.putInt(rh.gs(R.string.apsIncarnationNo), diaconnG8Pump.pumpIncarnationNum)
-        }
-
         // if another pump
         if (pumpSerialNo != diaconnG8Pump.serialNo) {
-            pumpLogDefaultSetting()
+            apsWrappingCount = pumpWrappingCount
+            apsLastLogNum = if (pumpLastNum - 1 < 0) 0 else pumpLastNum -2
             sp.putInt(rh.gs(R.string.pumpserialno), diaconnG8Pump.serialNo)
         }
-
-        apsWrappingCount = sp.getInt(rh.gs(R.string.apsWrappingCount), 0)
-        apsLastLogNum = sp.getInt(rh.gs(R.string.apslastLogNum), 0)
-
-        val apsLastNum = apsWrappingCount * 10000 + apsLastLogNum
-        if ((pumpWrappingCount * 10000 + pumpLastNum) < apsLastLogNum) {
-            pumpLogDefaultSetting()
+        // if pump reset
+        if (apsIncarnationNum != diaconnG8Pump.pumpIncarnationNum) {
+            apsWrappingCount = pumpWrappingCount
+            apsLastLogNum = if (pumpLastNum - 1 < 0) 0 else pumpLastNum -2
+            sp.putInt(R.string.apsIncarnationNo, apsIncarnationNum)
         }
-
-        val start: Int? // log sync startNo
-        val end: Int? // log sync endNo
-        if (((pumpWrappingCount * 10000 + pumpLastNum) - apsLastNum) > 10000) {
-            start = pumpLastNum
-            end = 10000
-        } else if (pumpWrappingCount > apsWrappingCount && apsLastLogNum < 9999) {
-            start = apsLastLogNum + 1
-            end = 10000
-        } else if (pumpWrappingCount > apsWrappingCount && apsLastLogNum >= 9999) {
-            start = 0
-            end = pumpLastNum
-        } else {
-            start = apsLastLogNum + 1
-            end = pumpLastNum
-        }
+            aapsLogger.debug(LTag.PUMPCOMM, "apsWrappingCount : $apsWrappingCount, apsLastLogNum : $apsLastLogNum")
 
         // pump log loop size
         val pumpLogPageSize = 11
-        val loopCount: Int = ceil(((end - start) / 11.0)).toInt()
-
+        val (start, end, loopSize) = getLogLoopCount(apsLastLogNum, apsWrappingCount, pumpLastNum, pumpWrappingCount, false)
+        aapsLogger.debug(LTag.PUMPCOMM, "loopinfo start : $start, end : $end, loopSize : $loopSize")
         // log sync start!
-        if (loopCount > 0) {
-            diaconnG8Pump.isProgressPumpLogSync = true
-
-            for (i in 0 until loopCount) {
+        if (loopSize > 0) {
+            for (i in 0 until loopSize) {
                 val startLogNo: Int = start + i * pumpLogPageSize
                 val endLogNo: Int = startLogNo + min(end - startLogNo, pumpLogPageSize)
                 val msg = BigLogInquirePacket(injector, startLogNo, endLogNo, 100)
-                sendMessage(msg)
-            }
-            diaconnG8Pump.historyDoneReceived = true
-            while (!diaconnG8Pump.historyDoneReceived && bleCommonService.isConnected) {
-                SystemClock.sleep(100)
+                sendMessage(msg, 500)
             }
             result.success(true)
             diaconnG8Pump.lastConnection = System.currentTimeMillis()
         }
+
         return result
+    }
+
+    private fun getLogLoopCount(lastLogNum: Int, wrappingCount: Int, pumpLastNum: Int, pumpWrappingCount: Int, isPlatform: Boolean): Triple<Int, Int, Int> {
+        val start: Int// log sync start number
+        val end: Int // log sync end number1311
+        aapsLogger.debug(LTag.PUMPCOMM, "lastLogNum : $lastLogNum, wrappingCount : $wrappingCount , pumpLastNum: $pumpLastNum, pumpWrappingCount : $pumpWrappingCount")
+
+        if ((pumpWrappingCount * 10000 + pumpLastNum - lastLogNum > 10000 && isPlatform)) {
+            start = pumpLastNum
+            end = 10000
+        } else if (pumpWrappingCount > wrappingCount && lastLogNum < 9999) {
+            start = (lastLogNum + 1)
+            end = 10000
+        } else if (pumpWrappingCount > wrappingCount && lastLogNum >= 9999 && isPlatform) {
+            start = 0 // 처음부터 시작
+            end = pumpLastNum
+        } else {
+            start = (lastLogNum + 1)
+            end = pumpLastNum
+        }
+        val size = ceil((end - start) / 11.0).toInt()
+        //
+        return Triple(start, end, size)
     }
 
     fun setUserSettings(): PumpEnactResult {
@@ -613,9 +620,9 @@ class DiaconnG8Service : DaggerService() {
             (basalList[23] * 100).toInt()
         )
         // setting basal pattern 1,2,3,4
-        sendMessage(requestReqPacket1)
-        sendMessage(requestReqPacket2)
-        sendMessage(requestReqPacket3)
+        sendMessage(requestReqPacket1, 500)
+        sendMessage(requestReqPacket2, 500)
+        sendMessage(requestReqPacket3, 500)
         sendMessage(requestReqPacket4)
 
         // otp process
@@ -631,13 +638,6 @@ class DiaconnG8Service : DaggerService() {
         readPumpStatus()
         rxBus.send(EventPumpStatusChanged(EventPumpStatusChanged.Status.DISCONNECTING))
         return requestReqPacket4.success()
-    }
-
-    private fun pumpLogDefaultSetting() {
-        val apsWrappingCount = diaconnG8Pump.pumpWrappingCount
-        val apsLastLogNum = if (diaconnG8Pump.pumpLastLogNum - 1 < 0) 0 else diaconnG8Pump.pumpLastLogNum - 1
-        sp.putInt(rh.gs(R.string.apslastLogNum), apsLastLogNum)
-        sp.putInt(rh.gs(R.string.apsWrappingCount), apsWrappingCount)
     }
 
     private fun processConfirm(msgType: Byte): Boolean {
