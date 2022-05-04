@@ -310,7 +310,7 @@ enum class PumpType {
         baseBasalMaxValue = 3.0,
         baseBasalStep = 0.01,
         baseBasalSpecialSteps = null,
-        pumpCapability = PumpCapability.DanaWithHistoryCapabilities,
+        pumpCapability = PumpCapability.DiaconnCapabilities,
         source = Sources.DiaconnG8);
 
     val description: String
