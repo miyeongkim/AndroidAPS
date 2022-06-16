@@ -130,7 +130,7 @@ class DiaconnG8Service : DaggerService() {
     }
 
     private fun sendMessage(message: DiaconnG8Packet) {
-        bleCommonService.sendMessage(message, 2000)
+        bleCommonService.sendMessage(message, 5000)
     }
 
     fun readPumpStatus() {
