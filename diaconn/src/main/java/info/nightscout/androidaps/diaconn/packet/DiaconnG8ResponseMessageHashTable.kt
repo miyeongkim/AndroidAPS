@@ -34,6 +34,7 @@ class DiaconnG8ResponseMessageHashTable @Inject constructor(val injector: HasAnd
         put(SoundInquireResponsePacket(injector))
         put(DisplayTimeInquireResponsePacket(injector))
         put(LanguageInquireResponsePacket(injector))
+        put(SerialNumInquireResponsePacket(injector))
 
 
         // Report Packet
