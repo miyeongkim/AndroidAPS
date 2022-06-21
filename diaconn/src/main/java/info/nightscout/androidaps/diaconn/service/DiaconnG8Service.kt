@@ -137,6 +137,7 @@ class DiaconnG8Service : DaggerService() {
         try {
             val pump = activePlugin.activePump
             rxBus.send(EventPumpStatusChanged(rh.gs(R.string.gettingpumpsettings)))
+            sendMessage(SerialNumInquirePacket(injector))
 
             val pumpFirmwareVersion = sp.getString(rh.gs(R.string.pumpversion), "")
 
