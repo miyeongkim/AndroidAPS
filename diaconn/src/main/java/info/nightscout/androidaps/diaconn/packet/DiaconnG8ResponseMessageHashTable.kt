@@ -25,7 +25,6 @@ class DiaconnG8ResponseMessageHashTable @Inject constructor(val injector: HasAnd
         put(SneckLimitInquireResponsePacket(injector))
         put(BasalLimitInquireResponsePacket(injector))
         put(TempBasalInquireResponsePacket(injector))
-        put(TimeInquirePacket(injector))
         put(TimeInquireResponsePacket(injector))
         put(TimeReportPacket(injector))
         put(LogStatusInquireResponsePacket(injector))

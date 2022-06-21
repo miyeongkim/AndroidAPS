@@ -12,6 +12,7 @@ import info.nightscout.androidaps.diaconn.packet.*
 import info.nightscout.androidaps.events.EventPumpStatusChanged
 import info.nightscout.androidaps.extensions.notify
 import info.nightscout.androidaps.extensions.waitMillis
+import info.nightscout.androidaps.interfaces.Diaconn
 import info.nightscout.shared.logging.AAPSLogger
 import info.nightscout.shared.logging.LTag
 import info.nightscout.androidaps.plugins.bus.RxBus
@@ -240,6 +241,10 @@ class BLECommonService @Inject internal constructor(
     fun sendMessage(message: DiaconnG8Packet, waitMillis: Long) {
         // 펌프로 요청하기전 변수에 담기. 마지막 요청정보 확인용.
         processedMessage = message
+        if (bluetoothGatt == null) {
+            aapsLogger.debug(LTag.PUMPBTCOMM, ">>>>> IGNORING (NOT CONNECTED) " + message.friendlyName)
+            return
+        }
         val sequence = getMsgSequence()
         aapsLogger.debug(LTag.PUMPBTCOMM, ">>>>> " + message.friendlyName + "  Sequence >>" + sequence)
         // 요청

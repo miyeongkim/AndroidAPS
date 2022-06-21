@@ -165,6 +165,7 @@ class DiaconnG8Service : DaggerService() {
 
             // 시간 설정
             rxBus.send(EventPumpStatusChanged(rh.gs(R.string.gettingpumptime)))
+            sendMessage(TimeInquirePacket(injector))
             var timeDiff = (diaconnG8Pump.getPumpTime() - System.currentTimeMillis()) / 1000L
             if (diaconnG8Pump.getPumpTime() == 0L) {
                 // initial handshake was not successful
