@@ -134,7 +134,9 @@ class BLECommonService @Inject internal constructor(
             aapsLogger.debug(LTag.PUMPBTCOMM, "onServicesDiscovered")
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 findCharacteristic()
-                SystemClock.sleep(300)
+                SystemClock.sleep(1600)
+                isConnected = true
+                isConnecting = false
             }
         }
 
@@ -208,6 +210,7 @@ class BLECommonService @Inject internal constructor(
                     uartIndicate = gattCharacteristic
                     //setCharacteristicNotification(uartIndicate, true)
                     bluetoothGatt?.setCharacteristicNotification(uartIndicate, true)
+
                     // nRF Connect 참고하여 추가함
                     val descriptor: BluetoothGattDescriptor = uartIndicate!!.getDescriptor(UUID.fromString(CHARACTERISTIC_CONFIG_UUID))
                     descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
@@ -225,8 +228,6 @@ class BLECommonService @Inject internal constructor(
         aapsLogger.debug(LTag.PUMPBTCOMM, "onConnectionStateChange newState : $newState")
         if (newState == BluetoothProfile.STATE_CONNECTED) {
             gatt.discoverServices()
-            isConnected = true
-            isConnecting = false
             rxBus.send(EventPumpStatusChanged(EventPumpStatusChanged.Status.CONNECTED))
         } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
             close()
@@ -274,6 +275,7 @@ class BLECommonService @Inject internal constructor(
     // process common packet response
     private fun processResponseMessage(data: ByteArray) {
         isConnected = true
+        isConnecting = false
 
         //요청정보
         val originalMessageSeq = processedMessage?.getSeq(processedMessageByte)
