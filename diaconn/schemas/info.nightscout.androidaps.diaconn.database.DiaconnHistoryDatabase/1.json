@@ -95,6 +95,7 @@
               "code",
               "timestamp"
             ],
+            "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_diaconnHistory_code_timestamp` ON `${TABLE_NAME}` (`code`, `timestamp`)"
           }
         ],

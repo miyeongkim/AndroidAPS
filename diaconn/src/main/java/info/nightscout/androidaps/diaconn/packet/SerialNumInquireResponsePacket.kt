@@ -3,7 +3,7 @@ package info.nightscout.androidaps.diaconn.packet
 import dagger.android.HasAndroidInjector
 import info.nightscout.androidaps.diaconn.DiaconnG8Pump
 import info.nightscout.androidaps.diaconn.R
-import info.nightscout.androidaps.utils.resources.ResourceHelper
+import info.nightscout.androidaps.interfaces.ResourceHelper
 import info.nightscout.shared.logging.LTag
 import info.nightscout.shared.sharedPreferences.SP
 import javax.inject.Inject
@@ -16,6 +16,7 @@ class SerialNumInquireResponsePacket(injector: HasAndroidInjector) : DiaconnG8Pa
     @Inject lateinit var diaconnG8Pump: DiaconnG8Pump
     @Inject lateinit var sp: SP
     @Inject lateinit var rh: ResourceHelper
+
 
     init {
         msgType = 0xAE.toByte()
