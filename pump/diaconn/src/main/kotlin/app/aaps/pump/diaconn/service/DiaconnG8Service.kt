@@ -7,6 +7,7 @@ import android.os.IBinder
 import android.os.SystemClock
 import app.aaps.core.data.configuration.Constants
 import app.aaps.core.data.pump.defs.PumpType
+import app.aaps.core.data.time.T
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.notifications.Notification
@@ -253,10 +254,10 @@ class DiaconnG8Service : DaggerService() {
                 }
             }
             loadHistory()
-            val eb = pumpSync.expectedPumpState().extendedBolus
-            diaconnG8Pump.fromExtendedBolus(eb)
-            val tbr = pumpSync.expectedPumpState().temporaryBasal
-            diaconnG8Pump.fromTemporaryBasal(tbr)
+            // Sync TBR/EB state directly from pump response fields instead of pumpSync.expectedPumpState()
+            // This prevents timing issues where pumpSync DB may not be updated yet
+            diaconnG8Pump.syncTempBasalFromPump()
+            diaconnG8Pump.syncExtendedBolusFromPump()
             rxBus.send(EventDiaconnG8NewStatus())
             rxBus.send(EventInitializationChanged())
             if (diaconnG8Pump.dailyTotalUnits > diaconnG8Pump.maxDailyTotalUnits * Constants.dailyLimitWarning) {
@@ -597,10 +598,18 @@ class DiaconnG8Service : DaggerService() {
             // pump tempbasal status inquire
         }
 
+        // Set TBR state directly after successful setting (don't rely solely on loadHistory/pumpSync)
+        if (result.success()) {
+            val durationInMinutes = (durationInHours * 60).toLong()
+            diaconnG8Pump.tempBasalStart = dateUtil.now()
+            diaconnG8Pump.tempBasalDuration = T.mins(durationInMinutes).msecs()
+            diaconnG8Pump.tempBasalAbsoluteRate = absoluteRate
+            aapsLogger.debug(LTag.PUMPCOMM, "TBR set directly: start=${diaconnG8Pump.tempBasalStart}, duration=${durationInMinutes}min, rate=${absoluteRate}U/h")
+        }
+
         sendMessage(TempBasalInquirePacket(injector))
         loadHistory()
-        val tbr = pumpSync.expectedPumpState().temporaryBasal
-        diaconnG8Pump.fromTemporaryBasal(tbr)
+        rxBus.send(EventDiaconnG8NewStatus())
         rxBus.send(EventPumpStatusChanged(EventPumpStatusChanged.Status.DISCONNECTING))
         return result.success()
     }
@@ -640,10 +649,17 @@ class DiaconnG8Service : DaggerService() {
             // otp process
             if (!processConfirm(msgTBR.msgType)) return false
         }
+        // Set TBR state directly after successful setting (don't rely solely on loadHistory/pumpSync)
+        if (result.success()) {
+            diaconnG8Pump.tempBasalStart = dateUtil.now()
+            diaconnG8Pump.tempBasalDuration = T.mins(durationInMinutes.toLong()).msecs()
+            diaconnG8Pump.tempBasalAbsoluteRate = absoluteRate
+            aapsLogger.debug(LTag.PUMPCOMM, "TBR set directly: start=${diaconnG8Pump.tempBasalStart}, duration=${durationInMinutes}min, rate=${absoluteRate}U/h")
+        }
+
         sendMessage(TempBasalInquirePacket(injector))
         loadHistory()
-        val tbr = pumpSync.expectedPumpState().temporaryBasal
-        diaconnG8Pump.fromTemporaryBasal(tbr)
+        rxBus.send(EventDiaconnG8NewStatus())
         rxBus.send(EventPumpStatusChanged(EventPumpStatusChanged.Status.DISCONNECTING))
         return result.success()
     }
@@ -665,11 +681,16 @@ class DiaconnG8Service : DaggerService() {
             // otp process
             if (!processConfirm(msgPacket.msgType)) return false
             SystemClock.sleep(500)
+
+            // Clear TBR state directly after successful stop
+            diaconnG8Pump.tempBasalStart = 0L
+            diaconnG8Pump.tempBasalDuration = 0L
+            diaconnG8Pump.tempBasalAbsoluteRate = 0.0
+            aapsLogger.debug(LTag.PUMPCOMM, "TBR stopped and state cleared directly")
         }
 
         loadHistory()
-        val tbr = pumpSync.expectedPumpState().temporaryBasal
-        diaconnG8Pump.fromTemporaryBasal(tbr)
+        rxBus.send(EventDiaconnG8NewStatus())
         rxBus.send(EventPumpStatusChanged(EventPumpStatusChanged.Status.DISCONNECTING))
         return true
     }
@@ -683,10 +704,17 @@ class DiaconnG8Service : DaggerService() {
         sendMessage(msgExtended)
         // otp process
         if (!processConfirm(msgExtended.msgType)) return false
-        //diaconnG8Pump.isExtendedInProgress = true
+
+        // Set EB state directly after successful setting (don't rely solely on loadHistory/pumpSync)
+        if (msgExtended.success()) {
+            diaconnG8Pump.extendedBolusStart = dateUtil.now()
+            diaconnG8Pump.extendedBolusDuration = T.mins(durationInMinutes.toLong()).msecs()
+            diaconnG8Pump.extendedBolusAmount = insulin
+            aapsLogger.debug(LTag.PUMPCOMM, "EB set directly: start=${diaconnG8Pump.extendedBolusStart}, duration=${durationInMinutes}min, amount=${insulin}U")
+        }
+
         loadHistory()
-        val eb = pumpSync.expectedPumpState().extendedBolus
-        diaconnG8Pump.fromExtendedBolus(eb)
+        rxBus.send(EventDiaconnG8NewStatus())
         rxBus.send(EventPumpStatusChanged(EventPumpStatusChanged.Status.DISCONNECTING))
         return msgExtended.success()
     }
@@ -699,9 +727,15 @@ class DiaconnG8Service : DaggerService() {
         sendMessage(msgStop)
         // otp process
         if (!processConfirm(msgStop.msgType)) return false
+
+        // Clear EB state directly after successful stop
+        diaconnG8Pump.extendedBolusStart = 0L
+        diaconnG8Pump.extendedBolusDuration = 0L
+        diaconnG8Pump.extendedBolusAmount = 0.0
+        aapsLogger.debug(LTag.PUMPCOMM, "EB stopped and state cleared directly")
+
         loadHistory() // pump log sync( db update)
-        val eb = pumpSync.expectedPumpState().extendedBolus
-        diaconnG8Pump.fromExtendedBolus(eb)
+        rxBus.send(EventDiaconnG8NewStatus())
         rxBus.send(EventPumpStatusChanged(EventPumpStatusChanged.Status.DISCONNECTING))
         return msgStop.success()
     }
@@ -780,19 +814,18 @@ class DiaconnG8Service : DaggerService() {
     private fun processConfirm(msgType: Byte): Boolean {
         // pump confirm
         var loopCnt = 0
-        // waiting 2 seconds for otp
-        while (loopCnt < 20) {
-            if (diaconnG8Pump.otpNumber == 0) {
-                SystemClock.sleep(100)
-                aapsLogger.error(LTag.PUMPCOMM, "OTP waiting 100ms $loopCnt / 20")
-            }
+        // waiting 2 seconds for otp (max 30 loops * 100ms = 2000ms)
+        while (loopCnt < 30 && diaconnG8Pump.otpNumber == 0) {
+            SystemClock.sleep(100)
+            aapsLogger.debug(LTag.PUMPCOMM, "OTP waiting 100ms $loopCnt / 30")
             loopCnt++
         }
-        // after 2 second
+        // check if otp received
         if (diaconnG8Pump.otpNumber == 0) {
-            aapsLogger.error(LTag.PUMPCOMM, "otp is not received yet")
+            aapsLogger.error(LTag.PUMPCOMM, "otp is not received yet after ${loopCnt * 100}ms")
             return false
         }
+        aapsLogger.debug(LTag.PUMPCOMM, "OTP received: ${diaconnG8Pump.otpNumber} after ${loopCnt * 100}ms")
         diaconnG8Pump.bolusConfirmMessage = msgType
         sendMessage(AppConfirmSettingPacket(injector, msgType, diaconnG8Pump.otpNumber), 2000)
         diaconnG8Pump.otpNumber = 0
