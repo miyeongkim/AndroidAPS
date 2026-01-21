@@ -343,7 +343,7 @@ class DiaconnG8Service : DaggerService() {
                 val endLogNo: Int = startLogNo + min(end - startLogNo, pumpLogPageSize)
                 aapsLogger.debug(LTag.PUMPCOMM, "pumplog request : $startLogNo ~ $endLogNo")
                 val msg = BigLogInquirePacket(injector, startLogNo, endLogNo, 100)
-                sendMessage(msg, 500)
+                sendMessage(msg, 2000)
             }
             result.success(true)
             diaconnG8Pump.lastConnection = System.currentTimeMillis()
@@ -608,8 +608,12 @@ class DiaconnG8Service : DaggerService() {
         }
 
         sendMessage(TempBasalInquirePacket(injector))
-        loadHistory()
-        rxBus.send(EventDiaconnG8NewStatus())
+        // do not call loadHistory() directly, reconnection may be needed
+        commandQueue.loadEvents(object : Callback() {
+            override fun run() {
+                rxBus.send(EventDiaconnG8NewStatus())
+            }
+        })
         rxBus.send(EventPumpStatusChanged(EventPumpStatusChanged.Status.DISCONNECTING))
         return result.success()
     }
@@ -658,8 +662,12 @@ class DiaconnG8Service : DaggerService() {
         }
 
         sendMessage(TempBasalInquirePacket(injector))
-        loadHistory()
-        rxBus.send(EventDiaconnG8NewStatus())
+        // do not call loadHistory() directly, reconnection may be needed
+        commandQueue.loadEvents(object : Callback() {
+            override fun run() {
+                rxBus.send(EventDiaconnG8NewStatus())
+            }
+        })
         rxBus.send(EventPumpStatusChanged(EventPumpStatusChanged.Status.DISCONNECTING))
         return result.success()
     }
@@ -689,8 +697,12 @@ class DiaconnG8Service : DaggerService() {
             aapsLogger.debug(LTag.PUMPCOMM, "TBR stopped and state cleared directly")
         }
 
-        loadHistory()
-        rxBus.send(EventDiaconnG8NewStatus())
+        // do not call loadHistory() directly, reconnection may be needed
+        commandQueue.loadEvents(object : Callback() {
+            override fun run() {
+                rxBus.send(EventDiaconnG8NewStatus())
+            }
+        })
         rxBus.send(EventPumpStatusChanged(EventPumpStatusChanged.Status.DISCONNECTING))
         return true
     }
@@ -713,8 +725,12 @@ class DiaconnG8Service : DaggerService() {
             aapsLogger.debug(LTag.PUMPCOMM, "EB set directly: start=${diaconnG8Pump.extendedBolusStart}, duration=${durationInMinutes}min, amount=${insulin}U")
         }
 
-        loadHistory()
-        rxBus.send(EventDiaconnG8NewStatus())
+        // do not call loadHistory() directly, reconnection may be needed
+        commandQueue.loadEvents(object : Callback() {
+            override fun run() {
+                rxBus.send(EventDiaconnG8NewStatus())
+            }
+        })
         rxBus.send(EventPumpStatusChanged(EventPumpStatusChanged.Status.DISCONNECTING))
         return msgExtended.success()
     }
@@ -734,8 +750,12 @@ class DiaconnG8Service : DaggerService() {
         diaconnG8Pump.extendedBolusAmount = 0.0
         aapsLogger.debug(LTag.PUMPCOMM, "EB stopped and state cleared directly")
 
-        loadHistory() // pump log sync( db update)
-        rxBus.send(EventDiaconnG8NewStatus())
+        // do not call loadHistory() directly, reconnection may be needed
+        commandQueue.loadEvents(object : Callback() {
+            override fun run() {
+                rxBus.send(EventDiaconnG8NewStatus())
+            }
+        })
         rxBus.send(EventPumpStatusChanged(EventPumpStatusChanged.Status.DISCONNECTING))
         return msgStop.success()
     }
